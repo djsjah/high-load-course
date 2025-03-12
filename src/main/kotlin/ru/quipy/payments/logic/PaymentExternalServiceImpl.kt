@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import org.slf4j.LoggerFactory
+import ru.quipy.common.utils.NonBlockingOngoingWindow
 import ru.quipy.common.utils.TokenBucketRateLimiter
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
@@ -43,6 +44,8 @@ class PaymentExternalSystemAdapterImpl(
         timeUnit = TimeUnit.SECONDS
     )
 
+    private val ongoingWindow = NonBlockingOngoingWindow(parallelRequests)
+
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
         logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
@@ -55,9 +58,9 @@ class PaymentExternalSystemAdapterImpl(
             it.logSubmission(success = true, transactionId, now(), Duration.ofMillis(now() - paymentStartedAt))
         }
 
-        while (!rateLimiter.tick()) {
+        while (ongoingWindow.putIntoWindow() is NonBlockingOngoingWindow.WindowResponse.Fail || !rateLimiter.tick()) {
             if (System.currentTimeMillis() >= deadline) {
-                logger.warn("[$accountName] Payment $paymentId rejected: rate limit timeout for payment")
+                logger.warn("[$accountName] Rate or parallel requests limit timeout for payment $paymentId")
                 paymentESService.update(paymentId) {
                     it.logProcessing(false, now(), transactionId, reason = "Rate limit exceeded")
                 }
@@ -105,6 +108,8 @@ class PaymentExternalSystemAdapterImpl(
                     }
                 }
             }
+        } finally {
+            ongoingWindow.releaseWindow()
         }
     }
 
