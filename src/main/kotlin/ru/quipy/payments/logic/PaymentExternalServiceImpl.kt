@@ -1,33 +1,23 @@
 package ru.quipy.payments.logic
 
+import okhttp3.*
+import okhttp3.Protocol
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import okhttp3.*
 import org.slf4j.LoggerFactory
-import ru.quipy.common.utils.NamedThreadFactory
+
+import java.io.IOException
+import java.time.Duration
+import java.util.*
+import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
+
 import ru.quipy.common.utils.OngoingWindow
 import ru.quipy.common.utils.RateLimiter
 import ru.quipy.common.utils.SlidingWindowRateLimiter
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
-import java.io.IOException
-import java.io.InterruptedIOException
-import java.net.SocketTimeoutException
-import java.time.Duration
-import java.util.*
-import java.util.concurrent.Executors
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
-import kotlin.math.min
-
-
-import java.util.concurrent.ExecutorService
-import java.net.InetSocketAddress
-import java.net.Proxy
-import okhttp3.Protocol
-
-// ...
 
 class PaymentExternalSystemAdapterImpl(
     private val properties: PaymentAccountProperties,
@@ -51,12 +41,11 @@ class PaymentExternalSystemAdapterImpl(
         SlidingWindowRateLimiter(rateLimitPerSec.toLong(), Duration.ofSeconds(1))
     private val ongoingWindow: OngoingWindow = OngoingWindow(parallelRequests)
 
-    // 👉 Используем виртуальные потоки
     private val virtualThreadPool: ExecutorService =
         Executors.newVirtualThreadPerTaskExecutor()
 
     private val client = OkHttpClient.Builder()
-        .protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE)) // HTTP/2 без TLS
+        .protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE))
         .dispatcher(
             Dispatcher().apply {
                 maxRequests = parallelRequests
